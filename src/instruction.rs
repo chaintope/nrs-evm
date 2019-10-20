@@ -1,6 +1,5 @@
 use crate::Context;
 
-
 construct_uint! {
     pub struct U256(4);
 }
@@ -27,6 +26,16 @@ impl From<Word> for U256 {
     }
 }
 
+impl std::fmt::Binary for U256 {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{:>064b}", &self.0[3])?;
+        write!(f, "{:>064b}", &self.0[2])?;
+        write!(f, "{:>064b}", &self.0[1])?;
+        write!(f, "{:>064b}", &self.0[0])?;
+        Ok(())
+    }
+}
+
 impl U256 {
     pub fn is_negative(&self) -> bool {
         self.0[3] >= NEGATIVE_BIT
@@ -45,11 +54,45 @@ impl U256 {
         }
         self
     }
+
+    pub fn actual_byte_size(&self) -> u8 {
+        let buf: &mut [u8] = &mut [0; 32];
+        self.to_big_endian(buf);
+        let mut res = 32;
+        for b in &buf[..31] {
+            if *b == 0_u8 {
+                res -= 1;
+            } else {
+                break;
+            }
+        }
+        res
+    }
+}
+
+#[test]
+fn test_actual_byte_size() {
+    let num = U256::from(1_u32);
+    assert_eq!(num.actual_byte_size(), 1);
+
+    let num = U256::from(0);
+    assert_eq!(num.actual_byte_size(), 1);
+
+    let num = U256::from(257);
+    assert_eq!(num.actual_byte_size(), 2);
+
+    let num = U256::from([
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    assert_eq!(num.actual_byte_size(), 32);
 }
 
 #[test]
 fn test_ngative() {
-    let mut num = U256::from(2).to_negative();
+    let num = U256::from(2).to_negative();
     assert_eq!(num, U256::from([
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -57,7 +100,7 @@ fn test_ngative() {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
     ]));
 
-    let mut num = U256::from([
+    let num = U256::from([
         0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -71,7 +114,7 @@ fn test_ngative() {
     ]));
 
     // if the num is negative, then no modify.
-    let mut num = U256::from([
+    let num = U256::from([
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -87,10 +130,10 @@ fn test_ngative() {
 
 #[test]
 fn test_abs() {
-    let mut num = U256::from(2).abs();
+    let num = U256::from(2).abs();
     assert_eq!(num, U256::from(2));
 
-    let mut num = U256::from([
+    let num = U256::from([
         0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -103,7 +146,7 @@ fn test_abs() {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     ]));
 
-    let mut num = U256::from([
+    let num = U256::from([
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -113,7 +156,7 @@ fn test_abs() {
 }
 
 pub trait OpcodeFn {
-    fn gas_cost(&self) -> u128;
+    fn gas_cost(&self) -> u64;
     fn exec(&self, ctx: Context) -> Context;
     fn instruct(&self, ctx: Context) -> Context {
         let mut res = self.exec(ctx);
@@ -124,13 +167,323 @@ pub trait OpcodeFn {
 
 pub struct OpAdd;
 
+impl OpcodeFn for OpAdd {
+    fn gas_cost(&self) -> u64 { 3 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_add(U256::from(ctx.stack.pop().unwrap()));
+        ctx.stack.push(Word::from(result.0));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
 pub struct OpMul;
+
+impl OpcodeFn for OpMul {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_mul(U256::from(ctx.stack.pop().unwrap()));
+        ctx.stack.push(Word::from(result.0));
+        ctx.pc += 1;
+        ctx
+    }
+}
 
 pub struct OpSub;
 
+impl OpcodeFn for OpSub {
+    fn gas_cost(&self) -> u64 { 3 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_sub(U256::from(ctx.stack.pop().unwrap()));
+        ctx.stack.push(Word::from(result.0));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
 pub struct OpDiv;
 
+impl OpcodeFn for OpDiv {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        if b.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            let result = a / b;
+            ctx.stack.push(Word::from(result));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
 pub struct OpSDiv;
+
+impl OpcodeFn for OpSDiv {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        if b.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            if a.is_negative() ^ b.is_negative() {
+                ctx.stack.push(Word::from((a.abs() / b.abs()).to_negative()));
+            } else {
+                ctx.stack.push(Word::from(a / b));
+            }
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpMod;
+
+impl OpcodeFn for OpMod {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        if b.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            ctx.stack.push(Word::from(a % b));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSMod;
+
+impl OpcodeFn for OpSMod {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        if b.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            if a.is_negative() {
+                ctx.stack.push(Word::from((a.abs() % b).to_negative()));
+            } else {
+                ctx.stack.push(Word::from(a % b));
+            }
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpAddMod;
+
+impl OpcodeFn for OpAddMod {
+    fn gas_cost(&self) -> u64 { 8 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        let c = U256::from(ctx.stack.pop().unwrap());
+        if c.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            let d = a.overflowing_add(b).0;
+            ctx.stack.push(Word::from(d % c));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpMulMod;
+
+impl OpcodeFn for OpMulMod {
+    fn gas_cost(&self) -> u64 { 8 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        let c = U256::from(ctx.stack.pop().unwrap());
+        if c.is_zero() {
+            ctx.stack.push(Word::from(U256::from(0)))
+        } else {
+            let d = a.overflowing_mul(b).0;
+            ctx.stack.push(Word::from(d % c));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpExp;
+
+impl OpcodeFn for OpExp {
+    fn gas_cost(&self) -> u64 { 10 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let base = U256::from(ctx.stack.pop().unwrap());
+        let exponent = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(base.overflowing_pow(exponent).0));
+        ctx.pc += 1;
+
+        // additional gas cost
+        ctx.used_gas += 50 * exponent.actual_byte_size() as u64;
+        ctx
+    }
+}
+
+pub struct OpSignExtend;
+
+impl OpcodeFn for OpSignExtend {
+    fn gas_cost(&self) -> u64 { 5 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let ext = U256::from(ctx.stack.pop().unwrap());
+        if ext < U256::from(31) {
+            let base = U256::from(ctx.stack.pop().unwrap());
+            let bit = ext * 8 + 7;
+            let sign_mask = U256::from(1) << bit;
+            let value_mask = sign_mask - 1;
+            let is_neg = !(base & sign_mask).is_zero();
+            if is_neg {
+                ctx.stack.push(Word::from(base | !value_mask));
+            } else {
+                ctx.stack.push(Word::from(base & value_mask));
+            }
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpLt;
+
+impl OpcodeFn for OpLt {
+    fn gas_cost(&self) -> u64 { 3 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(U256::from((a < b) as u8)));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpGt;
+
+impl OpcodeFn for OpGt {
+    fn gas_cost(&self) -> u64 { 3 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(U256::from((a > b) as u8)));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSLt;
+
+impl OpcodeFn for OpSLt {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        let neg_a = a.is_negative();
+        let neg_b = b.is_negative();
+        if neg_a ^ neg_b {
+            ctx.stack.push(Word::from(U256::from(neg_a as u8)));
+        } else {
+            ctx.stack.push(Word::from(U256::from((a < b) as u8)));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSGt;
+
+impl OpcodeFn for OpSGt {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        let neg_a = a.is_negative();
+        let neg_b = b.is_negative();
+        if neg_a ^ neg_b {
+            ctx.stack.push(Word::from(U256::from(neg_b as u8)));
+        } else {
+            ctx.stack.push(Word::from(U256::from((a > b) as u8)));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpEq;
+
+impl OpcodeFn for OpEq {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(U256::from((a == b) as u8)));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpIsZero;
+
+impl OpcodeFn for OpIsZero {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(U256::from((a.is_zero()) as u8)));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpAnd;
+
+impl OpcodeFn for OpAnd {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(a & b));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpInvalid;
+
+impl OpcodeFn for OpInvalid {
+    fn gas_cost(&self) -> u64 { 0 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        ctx.pc = ctx.codes.len();
+        ctx
+    }
+}
+
+// ###############################################################
+// #############               OP_PUSH               #############
+// ###############################################################
 
 pub struct OpPush1;
 
@@ -196,8 +549,6 @@ pub struct OpPush31;
 
 pub struct OpPush32;
 
-pub struct OpInvalid;
-
 fn convert_word(data: &[u8], size: usize) -> Word {
     let mut bytes: [u8; WORD_BYTE_SIZE] = [0; WORD_BYTE_SIZE];
     let mut offset = WORD_BYTE_SIZE - size;
@@ -220,7 +571,7 @@ pub trait OpPushGeneral {
 }
 
 impl<T: OpPushGeneral> OpcodeFn for T {
-    fn gas_cost(&self) -> u128 { 3 }
+    fn gas_cost(&self) -> u64 { 3 }
     fn exec(&self, ctx: Context) -> Context {
         self.push_exec(ctx)
     }
@@ -290,92 +641,35 @@ impl OpPushGeneral for OpPush31 { fn data_size(&self) -> u8 { 31 } }
 
 impl OpPushGeneral for OpPush32 { fn data_size(&self) -> u8 { 32 } }
 
-impl OpcodeFn for OpAdd {
-    fn gas_cost(&self) -> u128 { 3 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_add(U256::from(ctx.stack.pop().unwrap()));
-        ctx.stack.push(Word::from(result.0));
-        ctx.pc += 1;
-        ctx
-    }
-}
-
-impl OpcodeFn for OpMul {
-    fn gas_cost(&self) -> u128 { 5 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_mul(U256::from(ctx.stack.pop().unwrap()));
-        ctx.stack.push(Word::from(result.0));
-        ctx.pc += 1;
-        ctx
-    }
-}
-
-impl OpcodeFn for OpSub {
-    fn gas_cost(&self) -> u128 { 3 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        let result = U256::from(ctx.stack.pop().unwrap()).overflowing_sub(U256::from(ctx.stack.pop().unwrap()));
-        ctx.stack.push(Word::from(result.0));
-        ctx.pc += 1;
-        ctx
-    }
-}
-
-impl OpcodeFn for OpDiv {
-    fn gas_cost(&self) -> u128 { 5 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        let a = U256::from(ctx.stack.pop().unwrap());
-        let b = U256::from(ctx.stack.pop().unwrap());
-        if b.is_zero() {
-            ctx.stack.push(Word::from(U256::from(0)))
-        } else {
-            let result = a / b;
-            ctx.stack.push(Word::from(result));
-        }
-        ctx.pc += 1;
-        ctx
-    }
-}
-
-impl OpcodeFn for OpSDiv {
-    fn gas_cost(&self) -> u128 { 5 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        let a = U256::from(ctx.stack.pop().unwrap());
-        let b = U256::from(ctx.stack.pop().unwrap());
-        if b.is_zero() {
-            ctx.stack.push(Word::from(U256::from(0)))
-        } else {
-            if a.is_negative() ^ b.is_negative() {
-                ctx.stack.push(Word::from((a.abs() / b.abs()).to_negative()));
-            } else {
-                ctx.stack.push(Word::from(a / b));
-            }
-        }
-        ctx.pc += 1;
-        ctx
-    }
-}
-
-impl OpcodeFn for OpInvalid {
-    fn gas_cost(&self) -> u128 { 0 }
-
-    fn exec(&self, mut ctx: Context) -> Context {
-        ctx.pc = ctx.codes.len();
-        ctx
-    }
-}
-
 pub fn decode_op(opcode: u8) -> Box<dyn OpcodeFn> {
     match opcode {
+        // Arithmetic
         0x01 => Box::new(OpAdd),
         0x02 => Box::new(OpMul),
         0x03 => Box::new(OpSub),
         0x04 => Box::new(OpDiv),
         0x05 => Box::new(OpSDiv),
+        0x06 => Box::new(OpMod),
+        0x07 => Box::new(OpSMod),
+        0x08 => Box::new(OpAddMod),
+        0x09 => Box::new(OpMulMod),
+        0x0a => Box::new(OpExp),
+
+        // Bit extend
+        0x0b => Box::new(OpSignExtend),
+
+        // Compares
+        0x10 => Box::new(OpLt),
+        0x11 => Box::new(OpGt),
+        0x12 => Box::new(OpSLt),
+        0x13 => Box::new(OpSGt),
+        0x14 => Box::new(OpEq),
+        0x15 => Box::new(OpIsZero),
+
+        // Bitwise Operations
+        0x16 => Box::new(OpAnd),
+
+        // PUSHx
         0x60 => Box::new(OpPush1),
         0x61 => Box::new(OpPush2),
         0x62 => Box::new(OpPush3),
