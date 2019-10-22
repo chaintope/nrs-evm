@@ -1,159 +1,5 @@
-use crate::Context;
-
-construct_uint! {
-    pub struct U256(4);
-}
-
-const WORD_BYTE_SIZE: usize = 32;
-const NEGATIVE_BIT: u64 = std::u64::MAX / 2 + 1;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Word {
-    raw: [u8; WORD_BYTE_SIZE]
-}
-
-impl From<U256> for Word {
-    fn from(u: U256) -> Self {
-        let buf: &mut [u8; 32] = &mut [0; 32];
-        u.to_big_endian(buf);
-        Word { raw: *buf }
-    }
-}
-
-impl From<Word> for U256 {
-    fn from(w: Word) -> Self {
-        U256::from_big_endian(&w.raw)
-    }
-}
-
-impl std::fmt::Binary for U256 {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{:>064b}", &self.0[3])?;
-        write!(f, "{:>064b}", &self.0[2])?;
-        write!(f, "{:>064b}", &self.0[1])?;
-        write!(f, "{:>064b}", &self.0[0])?;
-        Ok(())
-    }
-}
-
-impl U256 {
-    pub fn is_negative(&self) -> bool {
-        self.0[3] >= NEGATIVE_BIT
-    }
-
-    pub fn to_negative(mut self) -> Self {
-        if !self.is_negative() {
-            self = !self + 1
-        }
-        self
-    }
-
-    pub fn abs(mut self) -> Self {
-        if self.is_negative() {
-            self = !self + 1
-        }
-        self
-    }
-
-    pub fn actual_byte_size(&self) -> u8 {
-        let buf: &mut [u8] = &mut [0; 32];
-        self.to_big_endian(buf);
-        let mut res = 32;
-        for b in &buf[..31] {
-            if *b == 0_u8 {
-                res -= 1;
-            } else {
-                break;
-            }
-        }
-        res
-    }
-}
-
-#[test]
-fn test_actual_byte_size() {
-    let num = U256::from(1_u32);
-    assert_eq!(num.actual_byte_size(), 1);
-
-    let num = U256::from(0);
-    assert_eq!(num.actual_byte_size(), 1);
-
-    let num = U256::from(257);
-    assert_eq!(num.actual_byte_size(), 2);
-
-    let num = U256::from([
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    assert_eq!(num.actual_byte_size(), 32);
-}
-
-#[test]
-fn test_ngative() {
-    let num = U256::from(2).to_negative();
-    assert_eq!(num, U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]));
-
-    let num = U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]).to_negative();
-    assert_eq!(num, U256::from([
-        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-    ]));
-
-    // if the num is negative, then no modify.
-    let num = U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]).to_negative();
-    assert_eq!(num, U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]));
-}
-
-#[test]
-fn test_abs() {
-    let num = U256::from(2).abs();
-    assert_eq!(num, U256::from(2));
-
-    let num = U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]).abs();
-    assert_eq!(num, U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]));
-
-    let num = U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]).abs();
-    assert_eq!(num, U256::from(2));
-}
+use crate::{Context, ContextState};
+use crate::core::*;
 
 pub trait OpcodeFn {
     fn gas_cost(&self) -> u64;
@@ -470,6 +316,179 @@ impl OpcodeFn for OpAnd {
     }
 }
 
+pub struct OpOr;
+
+impl OpcodeFn for OpOr {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(a | b));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpXOr;
+
+impl OpcodeFn for OpXOr {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        let b = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(a ^ b));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpNot;
+
+impl OpcodeFn for OpNot {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let a = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(!a));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpByte;
+
+impl OpcodeFn for OpByte {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let n = U256::from(ctx.stack.pop().unwrap());
+        let x = U256::from(ctx.stack.pop().unwrap());
+        if n > U256::from(31_u8) {
+            ctx.stack.push(Word::from(U256::from(0_u8)));
+        } else {
+            let sh: u32 = (31 - n.low_u32()) * 8;
+            let mut y = x >> sh;
+            y = y & U256::from(0xff_u8);
+            ctx.stack.push(Word::from(y));
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSHL;
+
+impl OpcodeFn for OpSHL {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let sh = U256::from(ctx.stack.pop().unwrap());
+        let x = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(x << sh));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSHR;
+
+impl OpcodeFn for OpSHR {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let sh = U256::from(ctx.stack.pop().unwrap());
+        let x = U256::from(ctx.stack.pop().unwrap());
+        ctx.stack.push(Word::from(x >> sh));
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+pub struct OpSAR;
+
+impl OpcodeFn for OpSAR {
+    fn gas_cost(&self) -> u64 { 3 }
+    fn exec(&self, mut ctx: Context) -> Context {
+        let sh = U256::from(ctx.stack.pop().unwrap());
+        let x = U256::from(ctx.stack.pop().unwrap());
+        let value_neg = x.is_negative();
+        let u256_256 = U256::from(256);
+        if !value_neg { // value is positive. it is same as right shift.
+            ctx.stack.push(Word::from(x >> sh));
+        } else { // keep top bit.
+            let allones = !U256::from(0);
+            if sh > u256_256 {
+                // cycled. so, all bit is 1.
+                ctx.stack.push(Word::from(allones));
+            } else {
+                let y = (x >> sh) | (allones << (u256_256 - sh));
+                ctx.stack.push(Word::from(y));
+            }
+        }
+        ctx.pc += 1;
+        ctx
+    }
+}
+
+// ###############################################################
+// #############          Memory Operations          #############
+// ###############################################################
+
+pub trait OpMemoryBase {
+    fn op_mem_exec(&self, mut ctx: Context) -> Context {
+        let offset = U256::from(ctx.stack.pop().unwrap());
+        if offset > U256::from(std::u32::MAX) {
+            ctx.state = ContextState::OutOfGas;
+            ctx.pc = ctx.codes.len();
+        } else {
+            let current_cost = ctx.memory.gas_cost();
+            ctx = self.individual(offset.low_u64(), ctx);
+            let new_cost = ctx.memory.gas_cost();
+
+            // additional gas cost
+            ctx.used_gas += new_cost - current_cost;
+        }
+        ctx.pc += 1;
+        ctx
+    }
+    fn individual(&self, offset: u64, ctx: Context) -> Context;
+}
+
+pub struct OpMemoryFn<T: OpMemoryBase>(T);
+
+impl<T: OpMemoryBase> OpcodeFn for OpMemoryFn<T> {
+    fn gas_cost(&self) -> u64 { 3 }
+
+    fn exec(&self, ctx: Context) -> Context {
+        self.0.op_mem_exec(ctx)
+    }
+}
+
+pub struct OpMLoad;
+
+impl OpMemoryBase for OpMLoad {
+    fn individual(&self, offset: u64, mut ctx: Context) -> Context {
+        ctx.stack.push(ctx.memory.read(offset).unwrap());
+        ctx
+    }
+}
+
+pub struct OpMStore;
+
+impl OpMemoryBase for OpMStore {
+    fn individual(&self, offset: u64, mut ctx: Context) -> Context {
+        ctx.memory.write(offset, ctx.stack.pop().unwrap()).unwrap();
+        ctx
+    }
+}
+
+pub struct OpMStore8;
+
+impl OpMemoryBase for OpMStore8 {
+    fn individual(&self, offset: u64, mut ctx: Context) -> Context {
+        let data = ctx.stack.pop().unwrap();
+        let onebyte: u8 = data.as_ref()[31];
+        ctx.memory.write(offset, &[onebyte]).unwrap();
+        ctx
+    }
+}
+
 pub struct OpInvalid;
 
 impl OpcodeFn for OpInvalid {
@@ -549,16 +568,6 @@ pub struct OpPush31;
 
 pub struct OpPush32;
 
-fn convert_word(data: &[u8], size: usize) -> Word {
-    let mut bytes: [u8; WORD_BYTE_SIZE] = [0; WORD_BYTE_SIZE];
-    let mut offset = WORD_BYTE_SIZE - size;
-    for b in data {
-        bytes[offset] = *b;
-        offset += 1;
-    }
-    Word { raw: bytes }
-}
-
 pub trait OpPushGeneral {
     fn data_size(&self) -> u8;
     fn push_exec(&self, mut ctx: Context) -> Context {
@@ -570,8 +579,11 @@ pub trait OpPushGeneral {
     }
 }
 
+struct OpPushFn<T: OpPushGeneral>(T);
+
 impl<T: OpPushGeneral> OpcodeFn for T {
     fn gas_cost(&self) -> u64 { 3 }
+
     fn exec(&self, ctx: Context) -> Context {
         self.push_exec(ctx)
     }
@@ -668,6 +680,18 @@ pub fn decode_op(opcode: u8) -> Box<dyn OpcodeFn> {
 
         // Bitwise Operations
         0x16 => Box::new(OpAnd),
+        0x17 => Box::new(OpOr),
+        0x18 => Box::new(OpXOr),
+        0x19 => Box::new(OpNot),
+        0x1a => Box::new(OpByte),
+        0x1b => Box::new(OpSHL),
+        0x1c => Box::new(OpSHR),
+        0x1d => Box::new(OpSAR),
+
+        // Memory Operations
+        0x51 => Box::new(OpMemoryFn(OpMLoad)),
+        0x52 => Box::new(OpMemoryFn(OpMStore)),
+        0x53 => Box::new(OpMemoryFn(OpMStore8)),
 
         // PUSHx
         0x60 => Box::new(OpPush1),
