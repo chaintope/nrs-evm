@@ -1,4 +1,6 @@
-use std::io::{Cursor, SeekFrom, Seek, Write, Read};
+use std::io::{Cursor, SeekFrom, Seek, Write};
+use hex::ToHex;
+use uint::core_::fmt::Error;
 
 #[derive(Default, Debug)]
 pub struct Memory(Cursor<Vec<u8>>);
@@ -163,6 +165,9 @@ pub struct Word {
 
 impl Word {
     pub const SIZE: usize = WORD_BYTE_SIZE;
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.raw)
+    }
 }
 
 impl AsRef<[u8]> for Word {

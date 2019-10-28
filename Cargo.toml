@@ -8,3 +8,6 @@ edition = "2018"
 
 [dependencies]
 uint = "0.8"
+keccak-hasher = "0.15"
+hash-db = "0.15.0"
+hex = "0.3"

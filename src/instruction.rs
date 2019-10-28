@@ -1,5 +1,7 @@
 use crate::{Context, ContextState};
 use crate::core::*;
+use keccak_hasher::KeccakHasher;
+use hash_db::Hasher;
 
 type InstructionResult = Result<Context, Context>;
 
@@ -440,9 +442,41 @@ impl OpcodeFn for OpSAR {
     }
 }
 
+pub struct OpSHA3;
+
+impl OpcodeFn for OpSHA3 {
+    fn gas_cost(&self) -> u64 { 30 }
+
+    fn exec(&self, mut ctx: Context) -> Context {
+        let index = U256::from(ctx.stack.pop().unwrap());
+        let size = U256::from(ctx.stack.pop().unwrap());
+        match memory_allocation_check_u256(ctx, index, size) {
+            Ok(mut ctx) => {
+                let input = ctx.memory.read_multi_bytes(index.low_u64(), size.as_usize()).unwrap();
+                let hash = KeccakHasher::hash(&input);
+                ctx.stack.push(Word::from(&hash));
+
+                // additional gas cost
+                ctx.used_gas += (word_size(size.as_usize()) * 6) as u64;
+                ctx.pc += 1;
+                ctx
+            },
+            Err(ctx) => ctx
+        }
+    }
+}
+
 // ###############################################################
 // #############          Memory Operations          #############
 // ###############################################################
+
+fn memory_allocation_check_u256(ctx: Context, offset: U256, size: U256) -> InstructionResult {
+    if size > U256::from(std::u32::MAX) {
+        Err(out_of_gas(ctx))
+    } else {
+        memory_allocation_check(ctx, offset, size.as_usize())
+    }
+}
 
 fn memory_allocation_check(mut ctx: Context, offset: U256, size: usize) -> InstructionResult {
     if offset > U256::from(std::u32::MAX) {
@@ -725,6 +759,7 @@ pub fn decode_op(opcode: u8) -> Box<dyn OpcodeFn> {
         0x1c => Box::new(OpSHR),
         0x1d => Box::new(OpSAR),
 
+        0x20 => Box::new(OpSHA3),
         // Memory Operations
         0x51 => Box::new(OpMemoryFn(OpMLoad)),
         0x52 => Box::new(OpMemoryFn(OpMStore)),

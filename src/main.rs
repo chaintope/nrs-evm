@@ -2,6 +2,8 @@ use crate::instruction::decode_op;
 
 #[macro_use]
 extern crate uint;
+extern crate keccak_hasher;
+extern crate hex;
 
 pub mod instruction;
 pub mod core;
@@ -731,5 +733,20 @@ mod test {
         ];
         assert_eq!(ctx.memory.as_ref(), expect);
         assert_eq!(ctx.used_gas, 18);
+    }
+
+    #[test]
+    fn test_sha3() {
+        let mut ctx = execute(vec![
+            0x63,
+            0x74, 0x65, 0x73, 0x74, // test
+            0x60, 0x40,
+            0x52,
+            0x60, 0x04,
+            0x60, 0x5c,
+            0x20,
+        ], 100000);
+        assert_eq!(ctx.stack.pop().unwrap().to_hex(), "9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658");
+        assert_eq!(ctx.used_gas, 60);
     }
 }
