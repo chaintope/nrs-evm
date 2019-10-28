@@ -1,6 +1,20 @@
 use crate::{Context, ContextState};
 use crate::core::*;
 
+type InstructionResult = Result<Context, Context>;
+
+fn out_of_gas(mut ctx: Context) -> Context {
+    ctx.state = ContextState::OutOfGas;
+    ctx.pc = ctx.codes.len();
+    ctx
+}
+
+fn invalid(mut ctx: Context) -> Context {
+    ctx.state = ContextState::Invalid;
+    ctx.pc = ctx.codes.len();
+    ctx
+}
+
 pub trait OpcodeFn {
     fn gas_cost(&self) -> u64;
     fn exec(&self, ctx: Context) -> Context;
@@ -430,23 +444,43 @@ impl OpcodeFn for OpSAR {
 // #############          Memory Operations          #############
 // ###############################################################
 
+fn memory_allocation_check(mut ctx: Context, offset: U256, size: usize) -> InstructionResult {
+    if offset > U256::from(std::u32::MAX) {
+        Err(out_of_gas(ctx))
+    } else {
+        let current_cost = ctx.memory.gas_cost();
+        match ctx.memory.allocate((offset + size).as_usize()) {
+            Ok(_) => {
+                let new_cost = ctx.memory.gas_cost();
+                // additional gas cost
+                ctx.used_gas += new_cost - current_cost;
+                if ctx.used_gas > ctx.remaining_gas {
+                    Err(out_of_gas(ctx))
+                } else {
+                    Ok(ctx)
+                }
+            },
+            Err(_) => {
+                Err(invalid(ctx))
+            }
+        }
+    }
+}
+
 pub trait OpMemoryBase {
     fn op_mem_exec(&self, mut ctx: Context) -> Context {
         let offset = U256::from(ctx.stack.pop().unwrap());
-        if offset > U256::from(std::u32::MAX) {
-            ctx.state = ContextState::OutOfGas;
-            ctx.pc = ctx.codes.len();
-        } else {
-            let current_cost = ctx.memory.gas_cost();
-            ctx = self.individual(offset.low_u64(), ctx);
-            let new_cost = ctx.memory.gas_cost();
-
-            // additional gas cost
-            ctx.used_gas += new_cost - current_cost;
+        let res = memory_allocation_check(ctx, offset, self.data_size());
+        match res {
+            Ok(mut ctx) => {
+                ctx = self.individual(offset.low_u64(), ctx);
+                ctx.pc += 1;
+                ctx
+            },
+            Err(ctx) => ctx,
         }
-        ctx.pc += 1;
-        ctx
     }
+    fn data_size(&self) -> usize;
     fn individual(&self, offset: u64, ctx: Context) -> Context;
 }
 
@@ -463,6 +497,7 @@ impl<T: OpMemoryBase> OpcodeFn for OpMemoryFn<T> {
 pub struct OpMLoad;
 
 impl OpMemoryBase for OpMLoad {
+    fn data_size(&self) -> usize { Word::SIZE }
     fn individual(&self, offset: u64, mut ctx: Context) -> Context {
         ctx.stack.push(ctx.memory.read(offset).unwrap());
         ctx
@@ -472,6 +507,7 @@ impl OpMemoryBase for OpMLoad {
 pub struct OpMStore;
 
 impl OpMemoryBase for OpMStore {
+    fn data_size(&self) -> usize { Word::SIZE }
     fn individual(&self, offset: u64, mut ctx: Context) -> Context {
         ctx.memory.write(offset, ctx.stack.pop().unwrap()).unwrap();
         ctx
@@ -481,6 +517,7 @@ impl OpMemoryBase for OpMStore {
 pub struct OpMStore8;
 
 impl OpMemoryBase for OpMStore8 {
+    fn data_size(&self) -> usize { 1 }
     fn individual(&self, offset: u64, mut ctx: Context) -> Context {
         let data = ctx.stack.pop().unwrap();
         let onebyte: u8 = data.as_ref()[31];

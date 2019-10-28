@@ -11,6 +11,7 @@ fn main() {
     println!("Hello, world!");
 }
 
+#[derive(Debug)]
 pub enum ContextState {
     Processing,
     Success,
@@ -24,7 +25,7 @@ impl Default for ContextState {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Context {
     state: ContextState,
     codes: Vec<u8>,
@@ -42,11 +43,12 @@ impl Context {
     }
 }
 
-pub fn execute(opecodes: Vec<u8>) -> Context {
+pub fn execute(opecodes: Vec<u8>, remaining_gas: u64) -> Context {
     let max_pc = opecodes.len();
     println!("{:?}", opecodes);
     let mut ctx = Context {
         codes: opecodes,
+        remaining_gas,
         .. Context::default()
     };
 
@@ -71,8 +73,12 @@ mod test {
     #[test]
     fn test_execute() {
         execute(vec![0x60, 0x01,
-                     0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x03]);
+                     0x7f,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0x03], 100000);
         construct_uint! {
 	    pub struct U256(4);
     }
@@ -95,7 +101,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0x01]);
+            0x01], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
     }
@@ -105,7 +111,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x0a,
             0x60, 0x01,
-            0x03]);
+            0x03], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from([
             0xff_u8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -123,7 +129,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x60, 0x02,
-            0x02]);
+            0x02], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
     }
@@ -137,13 +143,13 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x60, 0x00,
-            0x04]);
+            0x04], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
         let mut ctx = execute(vec![
             0x60, 0x00,
             0x60, 0x04,
-            0x04]);
+            0x04], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
     }
@@ -162,7 +168,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x05]);
+            0x05], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // -2 / 2
@@ -173,7 +179,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x05]);
+            0x05], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES));
 
@@ -185,7 +191,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
             0x60, 0x02,
-            0x05]);
+            0x05], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES));
 
@@ -193,7 +199,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x02,
-            0x05]);
+            0x05], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
     }
@@ -204,28 +210,28 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x03,
             0x60, 0x07,
-            0x06]);
+            0x06], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1_u32));
 
         // 8 mod 3
         let mut ctx = execute(vec![
             0x60, 0x03,
             0x60, 0x08,
-            0x06]);
+            0x06], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(2_u32));
 
         // 8 mod 9
         let mut ctx = execute(vec![
             0x60, 0x09,
             0x60, 0x08,
-            0x06]);
+            0x06], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(8_u32));
 
         // 7 mod 0
         let mut ctx = execute(vec![
             0x60, 0x00,
             0x60, 0x07,
-            0x06]);
+            0x06], 100000);
 
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
     }
@@ -236,14 +242,14 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x03,
             0x60, 0x07,
-            0x07]);
+            0x07], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1_u32));
 
         // 7 mod 0
         let mut ctx = execute(vec![
             0x60, 0x00,
             0x60, 0x07,
-            0x07]);
+            0x07], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
 
         // -7 mod 3
@@ -254,7 +260,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf9,
-            0x07]);
+            0x07], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES));
     }
 
@@ -265,7 +271,7 @@ mod test {
             0x60, 0x03,
             0x60, 0x05,
             0x60, 0x02,
-            0x08]);
+            0x08], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1_u32));
 
         // 2 + 5 mod 0
@@ -273,7 +279,7 @@ mod test {
             0x60, 0x00,
             0x60, 0x05,
             0x60, 0x02,
-            0x08]);
+            0x08], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
     }
 
@@ -284,7 +290,7 @@ mod test {
             0x60, 0x03,
             0x60, 0x04,
             0x60, 0x02,
-            0x09]);
+            0x09], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(2_u32));
 
         // 2 * 4 mod 0
@@ -292,7 +298,7 @@ mod test {
             0x60, 0x00,
             0x60, 0x04,
             0x60, 0x02,
-            0x09]);
+            0x09], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
 
         //  overflowing 7 mod 3
@@ -304,7 +310,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
             0x60, 0x02,
-            0x09]);
+            0x09], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(2_u32));
     }
 
@@ -314,7 +320,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x03,
             0x60, 0x02,
-            0x0a]);
+            0x0a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(8_u32));
         assert_eq!(ctx.used_gas, 66);
 
@@ -322,20 +328,20 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x00,
             0x60, 0x02,
-            0x0a]);
+            0x0a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1_u32));
         // 0^2
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x00,
-            0x0a]);
+            0x0a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0_u32));
 
         // 2^255
         let mut ctx = execute(vec![
             0x60, 0xff,
             0x60, 0x02,
-            0x0a]);
+            0x0a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from([
             0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -351,7 +357,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0x60, 0x03,
-            0x0a]);
+            0x0a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()),
                    U256::from_dec_str("77194726158210796949047323339125271902179989777093709359638389338608753093291").unwrap());
         assert_eq!(ctx.used_gas, 1616);
@@ -363,7 +369,7 @@ mod test {
         let mut ctx = execute(vec![
             0x61, 0xff, 0xff,
             0x60, 0x01,
-            0x0b]);
+            0x0b], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES));
         println!("bool to u256={:?}", U256::from((3 < 2) as u8));
     }
@@ -374,21 +380,21 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x10]);
+            0x10], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // 2 < 2
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x02,
-            0x10]);
+            0x10], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
 
         // 2 < 1
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x02,
-            0x10]);
+            0x10], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -398,21 +404,21 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x11]);
+            0x11], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
 
         // 2 > 2
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x02,
-            0x11]);
+            0x11], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
 
         // 2 > 1
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x02,
-            0x11]);
+            0x11], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
     }
 
@@ -426,14 +432,14 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x12]);
+            0x12], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // 2 < 1
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x02,
-            0x12]);
+            0x12], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
         // -2 < -1
         let mut ctx = execute(vec![
@@ -447,7 +453,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x12]);
+            0x12], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // -2 < -2
@@ -462,7 +468,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x12]);
+            0x12], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -476,14 +482,14 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x13]);
+            0x13], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
 
         // 2 > 1
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x02,
-            0x13]);
+            0x13], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // -2 > -1
@@ -498,7 +504,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x13]);
+            0x13], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
 
         // -2 > -2
@@ -513,7 +519,7 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-            0x13]);
+            0x13], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -523,14 +529,14 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x01,
-            0x14]);
+            0x14], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         // 1 == 2
         let mut ctx = execute(vec![
             0x60, 0x01,
             0x60, 0x02,
-            0x14]);
+            0x14], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -538,12 +544,12 @@ mod test {
     fn test_iszero() {
         let mut ctx = execute(vec![
             0x60, 0x00,
-            0x15]);
+            0x15], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
 
         let mut ctx = execute(vec![
             0x60, 0x01,
-            0x15]);
+            0x15], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -552,7 +558,7 @@ mod test {
         let mut ctx = execute(vec![
             0x61, 0xff, 0xff,
             0x60, 0x01,
-            0x16]);
+            0x16], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
     }
 
@@ -561,7 +567,7 @@ mod test {
         let mut ctx = execute(vec![
             0x61, 0xff, 0xff,
             0x60, 0x01,
-            0x17]);
+            0x17], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(65535));
     }
 
@@ -570,7 +576,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x18]);
+            0x18], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(3));
     }
 
@@ -578,7 +584,7 @@ mod test {
     fn test_not() {
         let mut ctx = execute(vec![
             0x60, 0x01,
-            0x19]);
+            0x19], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES) - 1);
     }
 
@@ -587,7 +593,7 @@ mod test {
         let mut ctx = execute(vec![
             0x61, 0x08, 0x01,
             0x60, 0x1e,
-            0x1a]);
+            0x1a], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(8));
     }
 
@@ -596,12 +602,12 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x1b]);
+            0x1b], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(4));
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x02,
-            0x1b]);
+            0x1b], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(8));
     }
 
@@ -610,12 +616,12 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x1c]);
+            0x1c], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
         let mut ctx = execute(vec![
             0x60, 0x04,
             0x60, 0x02,
-            0x1c]);
+            0x1c], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
     }
 
@@ -624,7 +630,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x02,
             0x60, 0x01,
-            0x1d]);
+            0x1d], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(1));
         let mut ctx = execute(vec![
             0x7f,
@@ -633,7 +639,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x60, 0xff,
-            0x1d]);
+            0x1d], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(U256_MAX_BYTES));
         let mut ctx = execute(vec![
             0x7f,
@@ -642,7 +648,7 @@ mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x60, 0xff,
-            0x1d]);
+            0x1d], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(0));
     }
 
@@ -651,7 +657,7 @@ mod test {
         let mut ctx = execute(vec![
             0x60, 0x80,
             0x60, 0x40,
-            0x52]);
+            0x52], 100000);
         assert!(ctx.stack.pop().is_none());
         let expect: &[u8] = &[
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -680,7 +686,7 @@ mod test {
             0x60, 0x40,
             0x52,
             0x60, 0x40,
-            0x51]);
+            0x51], 100000);
         assert_eq!(U256::from(ctx.stack.pop().unwrap()), U256::from(128));
         let expect: &[u8] = &[
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -708,7 +714,7 @@ mod test {
             0x63, 0x10, 0x20, 0x30, 0x40,
             0x60, 0x40,
             0x53,
-        ]);
+        ], 100000);
         assert!(ctx.stack.pop().is_none());
         let expect: &[u8] = &[
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

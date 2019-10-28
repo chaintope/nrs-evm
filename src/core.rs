@@ -1,10 +1,14 @@
 use std::io::{Cursor, SeekFrom, Seek, Write, Read};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Memory(Cursor<Vec<u8>>);
 
 pub trait OffsetWrite<T> {
     fn write(&mut self, offset: u64, data: T) -> std::io::Result<usize>;
+}
+
+pub fn word_size(size: usize) -> usize {
+    (size + Word::SIZE - 1) / Word::SIZE
 }
 
 impl Memory {
@@ -12,29 +16,32 @@ impl Memory {
         Memory(Cursor::new(Vec::new()))
     }
 
-    pub fn read(&mut self, offset: u64) -> std::io::Result<Word> {
-        let start = offset as usize;
-        let end = start + Word::SIZE;
-        if self.len() < end {
-            self.0.seek(SeekFrom::Start((end - 1) as u64))?;
+    pub fn allocate(&mut self, size: usize) -> std::io::Result<()> {
+        if self.len() < size {
+            self.0.seek(SeekFrom::Start((size - 1) as u64))?;
             self.0.write(&[0])?;
         }
-        println!("len={}, end={}", self.len(), end);
-        let mut buf: [u8; 32] = [0; 32];
-        buf.copy_from_slice(&self.0.get_ref()[start..end]);
-        Ok(Word { raw: buf })
+        Ok(())
+    }
+    pub fn read(&mut self, offset: u64) -> std::io::Result<Word> {
+        let bytes = self.read_multi_bytes(offset, Word::SIZE)?;
+        let buf: &mut [u8; Word::SIZE] = &mut [0; Word::SIZE];
+        buf.copy_from_slice(&bytes[0..Word::SIZE]);
+        Ok(Word::from(buf))
+    }
+
+    pub fn read_multi_bytes(&mut self, offset: u64, length: usize) -> std::io::Result<Vec<u8>> {
+        let start = offset as usize;
+        let end = start + length;
+        Ok(Vec::from(&self.0.get_ref()[start..end]))
     }
 
     pub fn len(&self) -> usize {
         self.0.get_ref().len()
     }
 
-    fn word_size(&self) -> usize {
-        (self.len() + Word::SIZE - 1) / Word::SIZE
-    }
-
     pub fn gas_cost(&self) -> u64 {
-        let word_size = self.word_size();
+        let word_size = word_size(self.len());
         (3 * word_size + word_size * word_size / 512) as u64
     }
 }
@@ -76,20 +83,32 @@ fn test_memory_write_offset() {
 }
 
 #[test]
+fn test_memory_allocate() {
+    let mut memory = Memory::new();
+    assert_eq!(memory.len(), 0);
+    assert_eq!(memory.gas_cost(), 0);
+
+    memory.allocate(32).unwrap();
+    assert_eq!(memory.len(), 32);
+    assert_eq!(memory.gas_cost(), 3);
+
+    memory.allocate(2080).unwrap();
+    assert_eq!(memory.len(), 2080);
+    assert_eq!(memory.gas_cost(), 203);
+}
+
+#[test]
 fn test_memory_read() {
     let mut memory = Memory::new();
     assert_eq!(memory.len(), 0);
     assert_eq!(memory.gas_cost(), 0);
 
+    memory.allocate(2080).unwrap();
     let word = memory.read(0_u64).unwrap();
-    assert_eq!(memory.len(), 32);
     assert_eq!(U256::from(word), U256::from(0));
-    assert_eq!(memory.gas_cost(), 3);
 
     let word = memory.read(2048_u64).unwrap();
-    assert_eq!(memory.len(), 2080);
     assert_eq!(U256::from(word), U256::from(0));
-    assert_eq!(memory.gas_cost(), 203);
 
     // write address
     let data_bytes: &[u8; 32] = &[
@@ -113,6 +132,21 @@ fn test_memory_read() {
         0x00, 0x00, 0x00, 0x00,
     ];
     assert_eq!(word.as_ref(), expect);
+}
+
+#[test]
+fn test_memory_read_multi_bytes() {
+    let mut memory = Memory::new();
+    assert_eq!(memory.len(), 0);
+    assert_eq!(memory.gas_cost(), 0);
+
+    memory.allocate(1030).unwrap();
+    let data = memory.read_multi_bytes(0_u64, 1).unwrap();
+    assert_eq!(data, &[0_u8]);
+
+
+    let data = memory.read_multi_bytes(1024_u64, 6).unwrap();
+    assert_eq!(data, &[0_u8, 0, 0, 0, 0, 0]);
 }
 
 construct_uint! {
