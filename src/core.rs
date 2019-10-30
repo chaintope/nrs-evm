@@ -1,7 +1,16 @@
-use std::io::{Cursor, SeekFrom, Seek, Write};
-use hex::ToHex;
-use uint::core_::fmt::Error;
+use std::collections::HashMap;
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
+use hex::FromHexError;
+use serde::{Deserializer, Serializer};
+use serde::de::Deserialize;
+use serde::ser::Serialize;
+use crate::hex_util::{ToHex, FromHex};
+
+
+///////////////////////////////////////////////
+//////////   Memory Implementation    /////////
+///////////////////////////////////////////////
 #[derive(Default, Debug)]
 pub struct Memory(Cursor<Vec<u8>>);
 
@@ -61,112 +70,116 @@ impl<T: AsRef<[u8]>> OffsetWrite<T> for Memory {
     }
 }
 
-#[test]
-fn test_memory_write_offset() {
-    let mut memory = Memory::new();
-    assert_eq!(memory.len(), 0);
-    assert_eq!(memory.gas_cost(), 0);
 
-    let bytes: &[u8] = &[1; 32];
-    memory.write(0_u64, bytes).unwrap();
-    assert_eq!(memory.len(), 32);
-    assert_eq!(memory.gas_cost(), 3);
-
-    memory.write(1024_u64, bytes).unwrap();
-    assert_eq!(memory.len(), 1056);
-    assert_eq!(&memory.as_ref()[32..36], &[0_u8, 0, 0, 0]);
-    assert_eq!(&memory.as_ref()[1022..1026], &[0_u8, 0, 1, 1]);
-    assert_eq!(memory.gas_cost(), 101);
-
-    let _res = memory.write(28_u64, &[10_u8, 11, 12, 13]).unwrap();
-    assert_eq!(memory.len(), 1056);
-    assert_eq!(&memory.as_ref()[22..32], &[1_u8, 1, 1, 1, 1, 1, 10, 11, 12, 13]);
-    assert_eq!(memory.gas_cost(), 101);
-}
-
-#[test]
-fn test_memory_allocate() {
-    let mut memory = Memory::new();
-    assert_eq!(memory.len(), 0);
-    assert_eq!(memory.gas_cost(), 0);
-
-    memory.allocate(32).unwrap();
-    assert_eq!(memory.len(), 32);
-    assert_eq!(memory.gas_cost(), 3);
-
-    memory.allocate(2080).unwrap();
-    assert_eq!(memory.len(), 2080);
-    assert_eq!(memory.gas_cost(), 203);
-}
-
-#[test]
-fn test_memory_read() {
-    let mut memory = Memory::new();
-    assert_eq!(memory.len(), 0);
-    assert_eq!(memory.gas_cost(), 0);
-
-    memory.allocate(2080).unwrap();
-    let word = memory.read(0_u64).unwrap();
-    assert_eq!(U256::from(word), U256::from(0));
-
-    let word = memory.read(2048_u64).unwrap();
-    assert_eq!(U256::from(word), U256::from(0));
-
-    // write address
-    let data_bytes: &[u8; 32] = &[
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x9E, 0x9C, 0x03, 0x05,
-        0xD3, 0x73, 0x0E, 0xa2, 0x5C, 0x9a, 0x8C, 0xcf,
-        0xd7, 0xE9, 0x3b, 0x0a, 0x9c, 0x5A, 0xA4, 0x67,
-    ];
-    let data = Word::from(data_bytes);
-    memory.write(32, data).unwrap();
-    let word = memory.read(32_u64).unwrap();
-    assert_eq!(memory.len(), 2080);
-    assert_eq!(word.as_ref(), data_bytes);
-
-    let word = memory.read(44_u64).unwrap();
-    let expect: &[u8; 32] = &[
-        0x9E, 0x9C, 0x03, 0x05,
-        0xD3, 0x73, 0x0E, 0xa2, 0x5C, 0x9a, 0x8C, 0xcf,
-        0xd7, 0xE9, 0x3b, 0x0a, 0x9c, 0x5A, 0xA4, 0x67,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-    ];
-    assert_eq!(word.as_ref(), expect);
-}
-
-#[test]
-fn test_memory_read_multi_bytes() {
-    let mut memory = Memory::new();
-    assert_eq!(memory.len(), 0);
-    assert_eq!(memory.gas_cost(), 0);
-
-    memory.allocate(1030).unwrap();
-    let data = memory.read_multi_bytes(0_u64, 1).unwrap();
-    assert_eq!(data, &[0_u8]);
-
-
-    let data = memory.read_multi_bytes(1024_u64, 6).unwrap();
-    assert_eq!(data, &[0_u8, 0, 0, 0, 0, 0]);
-}
-
+///////////////////////////////////////////////
+//////////     U256 Implementation    /////////
+///////////////////////////////////////////////
 construct_uint! {
     pub struct U256(4);
 }
 
+impl Serialize for U256 {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer {
+        serializer.serialize_str(&format!("{}", self))
+    }
+}
+
+impl<'de> Deserialize<'de> for U256 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        use serde::de::Error;
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        match U256::from_dec_str(s) {
+            Ok(num) => Ok(num),
+            Err(e) => Err(Error::custom(format!("{:?}", e)))
+        }
+    }
+}
+
+impl std::fmt::Binary for U256 {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{:>064b}", &self.0[3])?;
+        write!(f, "{:>064b}", &self.0[2])?;
+        write!(f, "{:>064b}", &self.0[1])?;
+        write!(f, "{:>064b}", &self.0[0])?;
+        Ok(())
+    }
+}
+
+impl U256 {
+    pub fn is_negative(&self) -> bool {
+        self.0[3] >= NEGATIVE_BIT
+    }
+
+    pub fn to_negative(mut self) -> Self {
+        if !self.is_negative() {
+            self = !self + 1
+        }
+        self
+    }
+
+    pub fn abs(mut self) -> Self {
+        if self.is_negative() {
+            self = !self + 1
+        }
+        self
+    }
+
+    pub fn actual_byte_size(&self) -> u8 {
+        let buf: &mut [u8] = &mut [0; 32];
+        self.to_big_endian(buf);
+        let mut res = 32;
+        for b in &buf[..31] {
+            if *b == 0_u8 {
+                res -= 1;
+            } else {
+                break;
+            }
+        }
+        res
+    }
+}
+
+///////////////////////////////////////////////
+//////////     Word Implementation    /////////
+///////////////////////////////////////////////
 const WORD_BYTE_SIZE: usize = 32;
 const NEGATIVE_BIT: u64 = std::u64::MAX / 2 + 1;
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Word {
     raw: [u8; WORD_BYTE_SIZE]
 }
 
 impl Word {
     pub const SIZE: usize = WORD_BYTE_SIZE;
-    pub fn to_hex(&self) -> String {
+    pub fn from_hex(hex_str: &str) -> Result<Self, FromHexError> {
+        if hex_str.len() != 64 {
+            return Err(FromHexError::InvalidStringLength)
+        }
+        let to_bytes = hex::decode(hex_str)?;
+        let mut raw = [0; WORD_BYTE_SIZE];
+        raw.copy_from_slice(&to_bytes);
+        return Ok(Word::from(&raw))
+    }
+}
+
+impl ToHex for Word {
+    fn to_hex(&self) -> String {
         hex::encode(&self.raw)
+    }
+}
+
+impl<'de> Deserialize<'de> for Word {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        use serde::de::Error;
+
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        let mut raw = [0; WORD_BYTE_SIZE];
+        let bytes = hex::decode(s).map_err(Error::custom)?;
+        raw.copy_from_slice(&bytes);
+        Ok(Word::from(&raw))
     }
 }
 
@@ -222,10 +235,6 @@ impl std::fmt::Binary for U256 {
     }
 }
 
-impl U256 {
-    pub fn is_negative(&self) -> bool {
-        self.0[3] >= NEGATIVE_BIT
-    }
 
     pub fn to_negative(mut self) -> Self {
         if !self.is_negative() {

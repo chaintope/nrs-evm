@@ -651,12 +651,11 @@ pub trait OpPushGeneral {
 }
 
 struct OpPushFn<T: OpPushGeneral>(T);
-
-impl<T: OpPushGeneral> OpcodeFn for T {
+impl<T: OpPushGeneral> OpcodeFn for OpPushFn<T> {
     fn gas_cost(&self) -> u64 { 3 }
 
     fn exec(&self, ctx: Context) -> Context {
-        self.push_exec(ctx)
+        self.0.push_exec(ctx)
     }
 }
 
@@ -766,38 +765,38 @@ pub fn decode_op(opcode: u8) -> Box<dyn OpcodeFn> {
         0x53 => Box::new(OpMemoryFn(OpMStore8)),
 
         // PUSHx
-        0x60 => Box::new(OpPush1),
-        0x61 => Box::new(OpPush2),
-        0x62 => Box::new(OpPush3),
-        0x63 => Box::new(OpPush4),
-        0x64 => Box::new(OpPush5),
-        0x65 => Box::new(OpPush6),
-        0x66 => Box::new(OpPush7),
-        0x67 => Box::new(OpPush8),
-        0x68 => Box::new(OpPush9),
-        0x69 => Box::new(OpPush10),
-        0x6a => Box::new(OpPush11),
-        0x6b => Box::new(OpPush12),
-        0x6c => Box::new(OpPush13),
-        0x6d => Box::new(OpPush14),
-        0x6e => Box::new(OpPush15),
-        0x6f => Box::new(OpPush16),
-        0x70 => Box::new(OpPush17),
-        0x71 => Box::new(OpPush18),
-        0x72 => Box::new(OpPush19),
-        0x73 => Box::new(OpPush20),
-        0x74 => Box::new(OpPush21),
-        0x75 => Box::new(OpPush22),
-        0x76 => Box::new(OpPush23),
-        0x77 => Box::new(OpPush24),
-        0x78 => Box::new(OpPush25),
-        0x79 => Box::new(OpPush26),
-        0x7a => Box::new(OpPush27),
-        0x7b => Box::new(OpPush28),
-        0x7c => Box::new(OpPush29),
-        0x7d => Box::new(OpPush30),
-        0x7e => Box::new(OpPush31),
-        0x7f => Box::new(OpPush32),
+        0x60 => Box::new(OpPushFn(OpPush1)),
+        0x61 => Box::new(OpPushFn(OpPush2)),
+        0x62 => Box::new(OpPushFn(OpPush3)),
+        0x63 => Box::new(OpPushFn(OpPush4)),
+        0x64 => Box::new(OpPushFn(OpPush5)),
+        0x65 => Box::new(OpPushFn(OpPush6)),
+        0x66 => Box::new(OpPushFn(OpPush7)),
+        0x67 => Box::new(OpPushFn(OpPush8)),
+        0x68 => Box::new(OpPushFn(OpPush9)),
+        0x69 => Box::new(OpPushFn(OpPush10)),
+        0x6a => Box::new(OpPushFn(OpPush11)),
+        0x6b => Box::new(OpPushFn(OpPush12)),
+        0x6c => Box::new(OpPushFn(OpPush13)),
+        0x6d => Box::new(OpPushFn(OpPush14)),
+        0x6e => Box::new(OpPushFn(OpPush15)),
+        0x6f => Box::new(OpPushFn(OpPush16)),
+        0x70 => Box::new(OpPushFn(OpPush17)),
+        0x71 => Box::new(OpPushFn(OpPush18)),
+        0x72 => Box::new(OpPushFn(OpPush19)),
+        0x73 => Box::new(OpPushFn(OpPush20)),
+        0x74 => Box::new(OpPushFn(OpPush21)),
+        0x75 => Box::new(OpPushFn(OpPush22)),
+        0x76 => Box::new(OpPushFn(OpPush23)),
+        0x77 => Box::new(OpPushFn(OpPush24)),
+        0x78 => Box::new(OpPushFn(OpPush25)),
+        0x79 => Box::new(OpPushFn(OpPush26)),
+        0x7a => Box::new(OpPushFn(OpPush27)),
+        0x7b => Box::new(OpPushFn(OpPush28)),
+        0x7c => Box::new(OpPushFn(OpPush29)),
+        0x7d => Box::new(OpPushFn(OpPush30)),
+        0x7e => Box::new(OpPushFn(OpPush31)),
+        0x7f => Box::new(OpPushFn(OpPush32)),
         _ => Box::new(OpInvalid),
     }
 }
