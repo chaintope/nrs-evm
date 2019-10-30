@@ -225,127 +225,66 @@ impl From<Word> for U256 {
     }
 }
 
-impl std::fmt::Binary for U256 {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{:>064b}", &self.0[3])?;
-        write!(f, "{:>064b}", &self.0[2])?;
-        write!(f, "{:>064b}", &self.0[1])?;
-        write!(f, "{:>064b}", &self.0[0])?;
-        Ok(())
+///////////////////////////////////////////////
+//////////  Storage Implementation    /////////
+///////////////////////////////////////////////
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Storage(pub HashMap<U256, Word>);
+
+
+///////////////////////////////////////////////
+//////////  Address Implementation    /////////
+///////////////////////////////////////////////
+const ADDRESS_BYTE_SIZE: usize = 20;
+#[derive(Debug, PartialEq, Eq)]
+pub struct Address([u8; ADDRESS_BYTE_SIZE]);
+impl Address {
+    pub const SIZE: usize = ADDRESS_BYTE_SIZE;
+}
+impl From<Word> for Address {
+    fn from(word: Word) -> Self {
+        let mut raw: [u8; 20] = [0; 20];
+        raw.copy_from_slice(&word.as_ref()[12..32]);
+        Address(raw)
     }
 }
 
-
-    pub fn to_negative(mut self) -> Self {
-        if !self.is_negative() {
-            self = !self + 1
-        }
-        self
-    }
-
-    pub fn abs(mut self) -> Self {
-        if self.is_negative() {
-            self = !self + 1
-        }
-        self
-    }
-
-    pub fn actual_byte_size(&self) -> u8 {
-        let buf: &mut [u8] = &mut [0; 32];
-        self.to_big_endian(buf);
-        let mut res = 32;
-        for b in &buf[..31] {
-            if *b == 0_u8 {
-                res -= 1;
-            } else {
-                break;
-            }
-        }
-        res
+impl From<&[u8; ADDRESS_BYTE_SIZE]> for Address {
+    fn from(buf: &[u8; ADDRESS_BYTE_SIZE]) -> Self {
+        let mut raw: [u8; ADDRESS_BYTE_SIZE] = [0; ADDRESS_BYTE_SIZE];
+        raw.copy_from_slice(buf);
+        Address(raw)
     }
 }
 
-#[test]
-fn test_actual_byte_size() {
-    let num = U256::from(1_u32);
-    assert_eq!(num.actual_byte_size(), 1);
-
-    let num = U256::from(0);
-    assert_eq!(num.actual_byte_size(), 1);
-
-    let num = U256::from(257);
-    assert_eq!(num.actual_byte_size(), 2);
-
-    let num = U256::from([
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    assert_eq!(num.actual_byte_size(), 32);
+impl ToHex for Address {
+    fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
 }
 
-#[test]
-fn test_ngative() {
-    let num = U256::from(2).to_negative();
-    assert_eq!(num, U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]));
-
-    let num = U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]).to_negative();
-    assert_eq!(num, U256::from([
-        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-    ]));
-
-    // if the num is negative, then no modify.
-    let num = U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]).to_negative();
-    assert_eq!(num, U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]));
+impl FromHex for Address {
+    fn from_hex(hex_str: &str) -> Self {
+        let mut raw = [0; ADDRESS_BYTE_SIZE];
+        let bytes = hex::decode(hex_str).unwrap();
+        raw.copy_from_slice(&bytes);
+        Address::from(&raw)
+    }
 }
 
-#[test]
-fn test_abs() {
-    let num = U256::from(2).abs();
-    assert_eq!(num, U256::from(2));
-
-    let num = U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]).abs();
-    assert_eq!(num, U256::from([
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    ]));
-
-    let num = U256::from([
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-    ]).abs();
-    assert_eq!(num, U256::from(2));
+///////////////////////////////////////////////
+//////////  Account Implementation    /////////
+///////////////////////////////////////////////
+#[derive(Serialize, Deserialize, Debug)]
+struct Account {
+    address: Address,
+    balance: U256,
+    nonce: u64,
+    code: Vec<u8>,
+    storage: Storage,
 }
+
+///////////////////////////////////////////////
+//////////  WordState Implementation  /////////
+///////////////////////////////////////////////
+type WordState = HashMap<Address, Account>;
