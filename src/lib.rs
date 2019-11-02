@@ -16,7 +16,7 @@ pub mod core;
 pub mod hex_util;
 
 serialize_as_hex_str!(Word Address);
-deserialize_from_hex!(Address);
+deserialize_from_hex!(Word Address);
 
 #[derive(Debug)]
 pub enum ContextState {
@@ -44,6 +44,21 @@ pub struct Context {
     used_gas: u64,
 }
 
+pub trait ContextInterface {
+    fn account_exists(&self, address: &Address) -> bool;
+    fn set_storage(&mut self, address: &Address, key: &Word, value: &Word) -> StorageStatus;
+    fn get_storage(&self, address: &Address, key: &Word) -> Word;
+    fn get_balance(&self, address: &Address) -> U256;
+    fn get_code_size(&self, address: &Address) -> usize;
+    fn get_code_hash(&self, address: &Address) -> Word;
+    fn copy_code(&self, address: &Address, buf: &mut [u8]) -> usize;
+    fn selfdestruct(&mut self, address: &Address, beneficiary: &Address) -> bool;
+    fn call(message: &CallMessage) -> bool;
+    fn get_tx_context(&self) -> TransactionContext;
+    fn get_block_hash(&self, number: u64) -> Word;
+    fn emit_log(&mut self, address: &Address, data: &[u8], topics: &[Word]);
+}
+
 impl Context {
     pub fn dump_stack(&self) {
         println!("stack: {:?}", self.stack)
@@ -66,7 +81,7 @@ pub fn execute(opecodes: Vec<u8>, remaining_gas: u64) -> Context {
     ctx
 }
 
-mod tests {
+pub mod tests {
     use crate::core::U256;
     use crate::execute;
     use crate::hex_util::ToHex;
@@ -77,28 +92,6 @@ mod tests {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     ];
-
-    #[test]
-    fn test_execute() {
-        execute(vec![0x60, 0x01,
-                     0x7f,
-                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                     0x03], 100000);
-        construct_uint! {
-	    pub struct U256(4);
-    }
-        let bytes: &[u8; 32] = &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
-        let p = U256::from_big_endian(
-            bytes
-        );
-        let buf: &mut [u8] = &mut [0; 32];
-        p.to_big_endian(buf);
-        println!("u={:?}", (p.overflowing_add(U256::from(2_u64))));
-    }
 
     #[test]
     fn test_overflow_add() {

@@ -1,9 +1,11 @@
+use hex::FromHexError;
+
 pub trait ToHex {
     fn to_hex(&self) -> String;
 }
 
-pub trait FromHex {
-    fn from_hex(hex_str: &str) -> Self;
+pub trait FromHex<T> {
+    fn from_hex(hex_str: &str) -> Result<T, FromHexError>;
 }
 
 #[macro_use]
@@ -29,9 +31,10 @@ macro_rules! deserialize_from_hex {
         impl<'de> serde::Deserialize<'de> for $t {
             fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error> where
                 D: serde::Deserializer<'de> {
+                use serde::de::Error;
                 use crate::hex_util::FromHex;
                 let s: &str = serde::Deserialize::deserialize(deserializer)?;
-                Ok($t::from_hex(s))
+                $t::from_hex(s).map_err(D::Error::custom)
             }
         }
     )*

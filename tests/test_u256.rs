@@ -1,4 +1,4 @@
-use nrs_evm::core::{U256, Word};
+use nrs_evm::core::U256;
 
 #[test]
 fn test_actual_byte_size() {

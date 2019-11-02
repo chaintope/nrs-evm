@@ -30,7 +30,7 @@ impl Memory {
     pub fn allocate(&mut self, size: usize) -> std::io::Result<()> {
         if self.len() < size {
             self.0.seek(SeekFrom::Start((size - 1) as u64))?;
-            self.0.write(&[0])?;
+            self.0.write_all(&[0])?;
         }
         Ok(())
     }
@@ -146,13 +146,16 @@ impl U256 {
 ///////////////////////////////////////////////
 const WORD_BYTE_SIZE: usize = 32;
 const NEGATIVE_BIT: u64 = std::u64::MAX / 2 + 1;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Word {
     raw: [u8; WORD_BYTE_SIZE]
 }
 
 impl Word {
     pub const SIZE: usize = WORD_BYTE_SIZE;
+    pub const ZERO: Word = Word {
+        raw: [0_u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ]
+    };
     pub fn from_hex(hex_str: &str) -> Result<Self, FromHexError> {
         if hex_str.len() != 64 {
             return Err(FromHexError::InvalidStringLength)
@@ -170,14 +173,13 @@ impl ToHex for Word {
     }
 }
 
-impl<'de> Deserialize<'de> for Word {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
-        use serde::de::Error;
-
-        let s: &str = Deserialize::deserialize(deserializer)?;
+impl FromHex<Word> for Word {
+    fn from_hex(hex_str: &str) -> Result<Self, FromHexError>  {
+        if hex_str.len() != 64 {
+            return Err(FromHexError::InvalidStringLength)
+        }
         let mut raw = [0; WORD_BYTE_SIZE];
-        let bytes = hex::decode(s).map_err(Error::custom)?;
+        let bytes = hex::decode(hex_str)?;
         raw.copy_from_slice(&bytes);
         Ok(Word::from(&raw))
     }
@@ -228,15 +230,15 @@ impl From<Word> for U256 {
 ///////////////////////////////////////////////
 //////////  Storage Implementation    /////////
 ///////////////////////////////////////////////
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Storage(pub HashMap<U256, Word>);
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+pub struct Storage(pub HashMap<Word, Word>);
 
 
 ///////////////////////////////////////////////
 //////////  Address Implementation    /////////
 ///////////////////////////////////////////////
 const ADDRESS_BYTE_SIZE: usize = 20;
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Address([u8; ADDRESS_BYTE_SIZE]);
 impl Address {
     pub const SIZE: usize = ADDRESS_BYTE_SIZE;
@@ -263,28 +265,149 @@ impl ToHex for Address {
     }
 }
 
-impl FromHex for Address {
-    fn from_hex(hex_str: &str) -> Self {
-        let mut raw = [0; ADDRESS_BYTE_SIZE];
-        let bytes = hex::decode(hex_str).unwrap();
-        raw.copy_from_slice(&bytes);
-        Address::from(&raw)
+impl FromHex<Address> for Address {
+    fn from_hex(hex_str: &str) -> Result<Self, FromHexError> {
+        if hex_str.len() != ADDRESS_BYTE_SIZE * 2 {
+            Err(FromHexError::InvalidStringLength)
+        } else {
+            let mut raw = [0; ADDRESS_BYTE_SIZE];
+            let bytes = hex::decode(hex_str)?;
+            raw.copy_from_slice(&bytes);
+            Ok(Address::from(&raw))
+        }
     }
 }
 
 ///////////////////////////////////////////////
 //////////  Account Implementation    /////////
 ///////////////////////////////////////////////
-#[derive(Serialize, Deserialize, Debug)]
-struct Account {
-    address: Address,
-    balance: U256,
-    nonce: u64,
-    code: Vec<u8>,
-    storage: Storage,
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+pub struct Account {
+    pub address: Address,
+    pub balance: U256,
+    pub nonce: u64,
+    pub code: Vec<u8>,
+    pub storage: Storage,
+}
+
+///////////////////////////////////////////////
+////////// Transaction Implementation /////////
+///////////////////////////////////////////////
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionContext {
+    pub gas_price: U256,
+    pub origin: Address,
+    pub block_coinbase: Address,
+    pub block_number: i64,
+    pub block_timestamp: i64,
+    pub block_difficulty: U256,
+}
+
+///////////////////////////////////////////////
+////////// CallMessage Implementation /////////
+///////////////////////////////////////////////
+pub enum CallKind {
+    Call,
+    DelegateCall,
+    StaticCall,
+    CallCode,
+    Create,
+    Create2,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CallMessage<'a> {
+    pub depth: u32,
+    pub gas: i64,
+    pub destination: Address,
+    pub sender: Address,
+    pub input_data: &'a [u8],
+    pub value: U256,
+    pub create2_salt: Word,
 }
 
 ///////////////////////////////////////////////
 //////////  WordState Implementation  /////////
 ///////////////////////////////////////////////
-type WordState = HashMap<Address, Account>;
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct OnMemoryWorldState(HashMap<Address, Account>);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum StorageStatus {
+    StorageUnchanged,
+    StorageModified,
+    StorageModifiedAgain,
+    StorageAdded,
+    StorageDeleted,
+}
+
+pub trait WorldStateInterface {
+    fn account_exists(&self, address: &Address) -> bool;
+    fn set_storage(&mut self, address: &Address, key: &Word, value: Word) -> StorageStatus;
+    fn get_storage(&self, address: &Address, key: &Word) -> Word;
+    fn get_balance(&self, address: &Address) -> U256;
+    fn get_code_size(&self, address: &Address) -> usize;
+    fn get_code_hash(&self, address: &Address) -> Word;
+    fn copy_code(&self, address: &Address, buf: &mut [u8]) -> usize;
+    fn selfdestruct(&mut self, address: &Address, beneficiary: &Address) -> bool;
+}
+
+impl OnMemoryWorldState {
+    pub fn insert(&mut self, address: Address, account: Account) -> Option<Account>{
+        self.0.insert(address, account)
+    }
+}
+impl WorldStateInterface for OnMemoryWorldState {
+    fn account_exists(&self, address: &Address) -> bool {
+        self.0.get(address).is_some()
+    }
+
+    fn set_storage(&mut self, address: &Address, key: &Word, value: Word) -> StorageStatus {
+        let res = match self.0.get(address) {
+            Some(a) => {
+                match a.storage.0.get(key) {
+                    Some(&Word::ZERO) | None => StorageStatus::StorageAdded,
+                    Some(w) => {
+                        if value == Word::ZERO {
+                            StorageStatus::StorageDeleted
+                        } else if &value == w {
+                            StorageStatus::StorageUnchanged
+                        } else {
+                            StorageStatus::StorageModified
+                        }
+                    },
+                }
+            },
+            None => panic!("set_storage: Account: {:?} is not exists!", &address),
+        };
+        let account = self.0.get_mut(address).unwrap();
+        account.storage.0.insert(key.clone(), value);
+        res
+    }
+
+    fn get_storage(&self, address: &Address, key: &Word) -> Word {
+        match self.0.get(address) {
+            Some(a) => a.storage.0.get(key).unwrap_or(&Word::ZERO).clone(),
+            None => panic!("get_storage: Account: {:?} is not exists!", &address)
+        }
+    }
+
+    fn get_balance(&self, _address: &Address) -> U256 {
+        unimplemented!()
+    }
+
+    fn get_code_size(&self, _address: &Address) -> usize {
+        unimplemented!()
+    }
+
+    fn get_code_hash(&self, _address: &Address) -> Word {
+        unimplemented!()
+    }
+
+    fn copy_code(&self, _address: &Address, _buf: &mut [u8]) -> usize {
+        unimplemented!()
+    }
+
+    fn selfdestruct(&mut self, _address: &Address, _beneficiary: &Address) -> bool {
+        unimplemented!()
+    }
+}
